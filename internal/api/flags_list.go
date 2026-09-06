@@ -6,7 +6,7 @@ import (
 	"featureflags/internal/store"
 )
 
-func List(s *store.Store) http.HandlerFunc {
+func ListFlags(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotImplemented, "not implemented")
 	}

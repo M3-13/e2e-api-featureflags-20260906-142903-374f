@@ -13,12 +13,12 @@ func main() {
 	s := store.NewStore()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /flags", api.Create(s))
-	mux.HandleFunc("GET /flags", api.List(s))
-	mux.HandleFunc("GET /flags/{key}", api.Get(s))
-	mux.HandleFunc("PUT /flags/{key}", api.Update(s))
-	mux.HandleFunc("DELETE /flags/{key}", api.Delete(s))
-	mux.HandleFunc("GET /flags/{key}/evaluate", api.Evaluate(s))
+	mux.HandleFunc("POST /flags", api.CreateFlag(s))
+	mux.HandleFunc("GET /flags", api.ListFlags(s))
+	mux.HandleFunc("GET /flags/{key}", api.GetFlag(s))
+	mux.HandleFunc("PUT /flags/{key}", api.UpdateFlag(s))
+	mux.HandleFunc("DELETE /flags/{key}", api.DeleteFlag(s))
+	mux.HandleFunc("GET /flags/{key}/evaluate", api.EvaluateFlag(s))
 	mux.HandleFunc("GET /healthz", api.Healthz)
 
 	handler := api.Logging(mux)
