@@ -12,7 +12,12 @@
       "port_env": "PORT",
       "health": { "path": "/healthz", "expect_status": [200] },
       "env": {
-        "PORT": { "dev": "8080" }
+        "HOST": { "dev": "127.0.0.1" },
+        "PORT": { "dev": "8080" },
+        "FEATUREFLAGS_API_TOKEN": {
+          "external": true,
+          "degraded_without": "POST /flags, PUT /flags/{key} and DELETE /flags/{key} answer 401"
+        }
       }
     }
   ]

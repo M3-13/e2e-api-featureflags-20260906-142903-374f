@@ -12,10 +12,12 @@ import (
 
 func updateReq(t *testing.T, s *store.Store, key, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	t.Setenv("FEATUREFLAGS_API_TOKEN", "test-token")
 	req := httptest.NewRequest(http.MethodPut, "/flags/"+key, strings.NewReader(body))
 	req.SetPathValue("key", key)
+	req.Header.Set("Authorization", "Bearer test-token")
 	rec := httptest.NewRecorder()
-	UpdateFlag(s)(rec, req)
+	RequireAuth(UpdateFlag(s)).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -118,4 +120,31 @@ func TestUpdateFlagBodyTooLarge(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", rec.Code)
 	}
+}
+
+func TestUpdateRequiresAuth(t *testing.T) {
+	t.Setenv("FEATUREFLAGS_API_TOKEN", "test-token")
+	s := store.NewStore()
+	_ = s.Create(store.Flag{Key: "flag1", Enabled: false})
+
+	t.Run("missing token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPut, "/flags/flag1", strings.NewReader(`{"enabled":true}`))
+		req.SetPathValue("key", "flag1")
+		rec := httptest.NewRecorder()
+		RequireAuth(UpdateFlag(s)).ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("want 401, got %d", rec.Code)
+		}
+	})
+
+	t.Run("wrong token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPut, "/flags/flag1", strings.NewReader(`{"enabled":true}`))
+		req.SetPathValue("key", "flag1")
+		req.Header.Set("Authorization", "Bearer wrong-token")
+		rec := httptest.NewRecorder()
+		RequireAuth(UpdateFlag(s)).ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("want 401, got %d", rec.Code)
+		}
+	})
 }
