@@ -13,7 +13,7 @@ func TestListEmpty(t *testing.T) {
 	s := store.NewStore()
 	req := httptest.NewRequest(http.MethodGet, "/flags", nil)
 	rec := httptest.NewRecorder()
-	List(s)(rec, req)
+	ListFlags(s)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", rec.Code)
@@ -37,7 +37,7 @@ func TestListAfterCreate(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/flags", nil)
 	rec := httptest.NewRecorder()
-	List(s)(rec, req)
+	ListFlags(s)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", rec.Code)
