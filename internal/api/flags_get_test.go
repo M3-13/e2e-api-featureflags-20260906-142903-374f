@@ -24,7 +24,7 @@ func TestGetFlagFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/flags/my-key", nil)
 	req.SetPathValue("key", "my-key")
 	rec := httptest.NewRecorder()
-	Get(s)(rec, req)
+	GetFlag(s)(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d", rec.Code)
@@ -45,7 +45,7 @@ func TestGetFlagNotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/flags/missing", nil)
 	req.SetPathValue("key", "missing")
 	rec := httptest.NewRecorder()
-	Get(s)(rec, req)
+	GetFlag(s)(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", rec.Code)
