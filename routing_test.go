@@ -67,7 +67,7 @@ func TestRoutesAreWired(t *testing.T) {
 			t.Fatalf("GET /flags/unknown-key want 404, got %d", rec.Code)
 		}
 		if !hasJSONErrorBody(rec) {
-			t.Fatalf("GET /flags/unknown-key should be wired, got 404 without a JSON error body")
+			t.Fatalf("GET /flags/unknown-key not wired: 404 response has no JSON error body")
 		}
 	})
 
@@ -102,7 +102,7 @@ func TestRoutesAreWired(t *testing.T) {
 			t.Fatalf("DELETE /flags/unknown-key want 404, got %d", rec.Code)
 		}
 		if !hasJSONErrorBody(rec) {
-			t.Fatalf("DELETE /flags/unknown-key should be wired, got 404 without a JSON error body")
+			t.Fatalf("DELETE /flags/unknown-key not wired: 404 response has no JSON error body")
 		}
 	})
 
