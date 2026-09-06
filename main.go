@@ -9,7 +9,7 @@ import (
 	"featureflags/internal/store"
 )
 
-func main() {
+func newHandler() http.Handler {
 	s := store.NewStore()
 
 	mux := http.NewServeMux()
@@ -21,7 +21,11 @@ func main() {
 	mux.HandleFunc("GET /flags/{key}/evaluate", api.EvaluateFlag(s))
 	mux.HandleFunc("GET /healthz", api.Healthz)
 
-	handler := api.Logging(mux)
+	return api.Logging(mux)
+}
+
+func main() {
+	handler := newHandler()
 
 	port := os.Getenv("PORT")
 	if port == "" {
