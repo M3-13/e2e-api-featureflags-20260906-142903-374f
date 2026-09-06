@@ -17,6 +17,7 @@ func newHandlerWithFlag(t *testing.T) http.Handler {
 	handler := newHandler()
 	req := httptest.NewRequest(http.MethodPost, "/flags",
 		strings.NewReader(`{"key":"myfeature","enabled":true}`))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer test-token")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -32,6 +33,7 @@ func TestRoutesAreWired(t *testing.T) {
 		handler := newHandler()
 		req := httptest.NewRequest(http.MethodPost, "/flags",
 			strings.NewReader(`{"key":"other","enabled":true}`))
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer test-token")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -79,6 +81,7 @@ func TestRoutesAreWired(t *testing.T) {
 		handler := newHandlerWithFlag(t)
 		req := httptest.NewRequest(http.MethodPut, "/flags/myfeature",
 			strings.NewReader(`{"enabled":false}`))
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer test-token")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)

@@ -15,6 +15,7 @@ func updateReq(t *testing.T, s *store.Store, key, body string) *httptest.Respons
 	t.Setenv("FEATUREFLAGS_API_TOKEN", "test-token")
 	req := httptest.NewRequest(http.MethodPut, "/flags/"+key, strings.NewReader(body))
 	req.SetPathValue("key", key)
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer test-token")
 	rec := httptest.NewRecorder()
 	RequireAuth(UpdateFlag(s)).ServeHTTP(rec, req)
@@ -142,6 +143,7 @@ func TestUpdateRequiresAuth(t *testing.T) {
 	t.Run("missing token", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPut, "/flags/flag1", strings.NewReader(`{"enabled":true}`))
 		req.SetPathValue("key", "flag1")
+		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		RequireAuth(UpdateFlag(s)).ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
@@ -152,6 +154,7 @@ func TestUpdateRequiresAuth(t *testing.T) {
 	t.Run("wrong token", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPut, "/flags/flag1", strings.NewReader(`{"enabled":true}`))
 		req.SetPathValue("key", "flag1")
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer wrong-token")
 		rec := httptest.NewRecorder()
 		RequireAuth(UpdateFlag(s)).ServeHTTP(rec, req)
