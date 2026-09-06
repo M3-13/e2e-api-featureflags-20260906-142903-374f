@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"unicode/utf8"
 
 	"featureflags/internal/store"
 )
@@ -37,6 +38,15 @@ func CreateFlag(s *store.Store) http.HandlerFunc {
 				writeError(w, http.StatusBadRequest, "rollout_percent must be between 0 and 100")
 				return
 			}
+		}
+
+		if utf8.RuneCountInString(req.Key) > 128 {
+			writeError(w, http.StatusBadRequest, "key is too long")
+			return
+		}
+		if len(req.Description) > 2000 {
+			writeError(w, http.StatusBadRequest, "description too long")
+			return
 		}
 
 		flag := store.Flag{

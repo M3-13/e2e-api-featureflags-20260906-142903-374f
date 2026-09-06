@@ -85,6 +85,24 @@ func TestCreateRolloutPercentOutOfRange(t *testing.T) {
 	}
 }
 
+func TestCreateKeyTooLong(t *testing.T) {
+	s := store.NewStore()
+	body, _ := json.Marshal(map[string]any{"key": strings.Repeat("ü", 129), "enabled": true})
+	rec := doCreate(t, s, string(body))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("key with 129 runes want 400, got %d", rec.Code)
+	}
+}
+
+func TestCreateDescriptionTooLong(t *testing.T) {
+	s := store.NewStore()
+	body, _ := json.Marshal(map[string]any{"key": "k", "enabled": true, "description": strings.Repeat("a", 2001)})
+	rec := doCreate(t, s, string(body))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("description with 2001 chars want 400, got %d", rec.Code)
+	}
+}
+
 func TestCreateBodyTooLarge(t *testing.T) {
 	s := store.NewStore()
 	var b bytes.Buffer
