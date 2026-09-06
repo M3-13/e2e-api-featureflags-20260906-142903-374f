@@ -14,12 +14,21 @@ func newDeleteRequest(path string) *http.Request {
 	return req
 }
 
+func doDelete(t *testing.T, s *store.Store, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	t.Setenv("FEATUREFLAGS_API_TOKEN", "test-token")
+	req := newDeleteRequest(path)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	RequireAuth(DeleteFlag(s)).ServeHTTP(rec, req)
+	return rec
+}
+
 func TestDeleteRemovesExistingFlag(t *testing.T) {
 	s := store.NewStore()
 	_ = s.Create(store.Flag{Key: "test-key", Enabled: true})
 
-	rec := httptest.NewRecorder()
-	DeleteFlag(s)(rec, newDeleteRequest("/flags/test-key"))
+	rec := doDelete(t, s, "/flags/test-key")
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("want 204, got %d", rec.Code)
@@ -36,10 +45,32 @@ func TestDeleteRemovesExistingFlag(t *testing.T) {
 func TestDeleteUnknownKey(t *testing.T) {
 	s := store.NewStore()
 
-	rec := httptest.NewRecorder()
-	DeleteFlag(s)(rec, newDeleteRequest("/flags/missing"))
+	rec := doDelete(t, s, "/flags/missing")
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", rec.Code)
 	}
+}
+
+func TestDeleteRequiresAuth(t *testing.T) {
+	t.Setenv("FEATUREFLAGS_API_TOKEN", "test-token")
+	s := store.NewStore()
+
+	t.Run("missing token", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		RequireAuth(DeleteFlag(s)).ServeHTTP(rec, newDeleteRequest("/flags/test-key"))
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("want 401, got %d", rec.Code)
+		}
+	})
+
+	t.Run("wrong token", func(t *testing.T) {
+		req := newDeleteRequest("/flags/test-key")
+		req.Header.Set("Authorization", "Bearer wrong-token")
+		rec := httptest.NewRecorder()
+		RequireAuth(DeleteFlag(s)).ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("want 401, got %d", rec.Code)
+		}
+	})
 }

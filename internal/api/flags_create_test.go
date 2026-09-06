@@ -13,10 +13,12 @@ import (
 
 func doCreate(t *testing.T, s *store.Store, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	t.Setenv("FEATUREFLAGS_API_TOKEN", "test-token")
 	req := httptest.NewRequest(http.MethodPost, "/flags", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer test-token")
 	rec := httptest.NewRecorder()
-	CreateFlag(s)(rec, req)
+	RequireAuth(CreateFlag(s)).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -93,4 +95,30 @@ func TestCreateBodyTooLarge(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", rec.Code)
 	}
+}
+
+func TestCreateRequiresAuth(t *testing.T) {
+	t.Setenv("FEATUREFLAGS_API_TOKEN", "test-token")
+	s := store.NewStore()
+
+	t.Run("missing token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/flags", strings.NewReader(`{"key":"k","enabled":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		RequireAuth(CreateFlag(s)).ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("want 401, got %d", rec.Code)
+		}
+	})
+
+	t.Run("wrong token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/flags", strings.NewReader(`{"key":"k","enabled":true}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer wrong-token")
+		rec := httptest.NewRecorder()
+		RequireAuth(CreateFlag(s)).ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("want 401, got %d", rec.Code)
+		}
+	})
 }

@@ -13,9 +13,11 @@ import (
 // never a 404 for an unknown key.
 func newHandlerWithFlag(t *testing.T) http.Handler {
 	t.Helper()
+	t.Setenv("FEATUREFLAGS_API_TOKEN", "test-token")
 	handler := newHandler()
 	req := httptest.NewRequest(http.MethodPost, "/flags",
 		strings.NewReader(`{"key":"myfeature","enabled":true}`))
+	req.Header.Set("Authorization", "Bearer test-token")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated {
@@ -26,9 +28,11 @@ func newHandlerWithFlag(t *testing.T) http.Handler {
 
 func TestRoutesAreWired(t *testing.T) {
 	t.Run("create flag", func(t *testing.T) {
+		t.Setenv("FEATUREFLAGS_API_TOKEN", "test-token")
 		handler := newHandler()
 		req := httptest.NewRequest(http.MethodPost, "/flags",
 			strings.NewReader(`{"key":"other","enabled":true}`))
+		req.Header.Set("Authorization", "Bearer test-token")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusCreated {
@@ -75,6 +79,7 @@ func TestRoutesAreWired(t *testing.T) {
 		handler := newHandlerWithFlag(t)
 		req := httptest.NewRequest(http.MethodPut, "/flags/myfeature",
 			strings.NewReader(`{"enabled":false}`))
+		req.Header.Set("Authorization", "Bearer test-token")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
@@ -87,6 +92,7 @@ func TestRoutesAreWired(t *testing.T) {
 
 		// (a) An existing, previously POST-created key answers 204.
 		req := httptest.NewRequest(http.MethodDelete, "/flags/myfeature", nil)
+		req.Header.Set("Authorization", "Bearer test-token")
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNoContent {
@@ -96,6 +102,7 @@ func TestRoutesAreWired(t *testing.T) {
 		// (b) An unknown key answers 404 with a JSON error object, i.e. the
 		// handler is wired (AC-03).
 		req = httptest.NewRequest(http.MethodDelete, "/flags/unknown-key", nil)
+		req.Header.Set("Authorization", "Bearer test-token")
 		rec = httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 		if rec.Code != http.StatusNotFound {
@@ -125,6 +132,42 @@ func TestRoutesAreWired(t *testing.T) {
 			t.Fatalf("GET /healthz want 200, got %d", rec.Code)
 		}
 	})
+}
+
+func TestMutatingRoutesRequireAuth(t *testing.T) {
+	t.Setenv("FEATUREFLAGS_API_TOKEN", "test-token")
+	handler := newHandler()
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "create", method: http.MethodPost, path: "/flags", body: `{"key":"k","enabled":true}`},
+		{name: "update", method: http.MethodPut, path: "/flags/k", body: `{"enabled":true}`},
+		{name: "delete", method: http.MethodDelete, path: "/flags/k", body: ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name+"/missing", func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("%s %s without token want 401, got %d", tc.method, tc.path, rec.Code)
+			}
+		})
+		t.Run(tc.name+"/wrong", func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+			req.Header.Set("Authorization", "Bearer wrong-token")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("%s %s with wrong token want 401, got %d", tc.method, tc.path, rec.Code)
+			}
+		})
+	}
 }
 
 func TestUnknownRouteReturnsNotFound(t *testing.T) {
