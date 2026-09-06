@@ -66,6 +66,22 @@ func TestEvaluateMissingUserBadRequest(t *testing.T) {
 	}
 }
 
+func TestEvaluateSetsCacheControlNoStore(t *testing.T) {
+	s := store.NewStore()
+	if err := s.Create(store.Flag{Key: "f", Enabled: true, RolloutPercent: 50}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	h := EvaluateFlag(s)
+
+	rec := evaluateRequest(t, h, "f", "user=alice")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("want Cache-Control no-store, got %q", got)
+	}
+}
+
 func TestEvaluateUnknownKeyNotFound(t *testing.T) {
 	s := store.NewStore()
 	h := EvaluateFlag(s)
