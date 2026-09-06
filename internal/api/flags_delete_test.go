@@ -19,7 +19,7 @@ func TestDeleteRemovesExistingFlag(t *testing.T) {
 	_ = s.Create(store.Flag{Key: "test-key", Enabled: true})
 
 	rec := httptest.NewRecorder()
-	Delete(s)(rec, newDeleteRequest("/flags/test-key"))
+	DeleteFlag(s)(rec, newDeleteRequest("/flags/test-key"))
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("want 204, got %d", rec.Code)
@@ -37,7 +37,7 @@ func TestDeleteUnknownKey(t *testing.T) {
 	s := store.NewStore()
 
 	rec := httptest.NewRecorder()
-	Delete(s)(rec, newDeleteRequest("/flags/missing"))
+	DeleteFlag(s)(rec, newDeleteRequest("/flags/missing"))
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("want 404, got %d", rec.Code)
