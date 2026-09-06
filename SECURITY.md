@@ -1,137 +1,97 @@
-VERDICT: BLOCKED
+VERDICT: CHANGES_REQUESTED
 
-## Sicherheitsbericht
+Scanner-Hinweis: Für diesen Projekttyp wurden keine automatisierten Security-Scanner ausgeführt (`no applicable security scanners`). Das Fehlen von Scanner-Ergebnissen ist kein Nachweis für Abwesenheit von Schwachstellen. Die folgende Bewertung beruht auf manueller Codeanalyse.
 
-### Prüfumfang
-Es lagen keine automatisierten Scanner-Ergebnisse vor („no applicable security scanners for this project type“). Die Bewertung basiert daher ausschließlich auf der manuellen Analyse des vorliegenden Go-Quellcodes. Der Code erfüllt die funktionalen und die in den Acceptance Criteria genannten Sicherheitskriterien (Body-Limit, reduzierte Logausgabe, generische Fehlerantworten) grundsätzlich. Es besteht jedoch eine schwerwiegende Lücke bei der Zugriffskontrolle.
+## Befunde
 
-### 1. Hoch: Fehlende Authentifizierung und Autorisierung für administrative Endpunkte
+### 1. Mittel — Inkonsistente Zugriffskontrolle auf lesende Verwaltungs-Endpunkte
+**Betroffene Stelle:** `main.go`, Routen für `GET /flags` und `GET /flags/{key}`.
 
-**Betroffene Stellen:** `main.go` (`newHandler`, `main`), `internal/api/flags_create.go`, `internal/api/flags_update.go`, `internal/api/flags_delete.go`, `internal/api/flags_list.go`
+Die Endpunkte `GET /flags` und `GET /flags/{key}` sind ohne Authentifizierung erreichbar, während die mutierenden Endpunkte `POST`, `PUT` und `DELETE` durch `api.RequireAuth` geschützt sind. Ein anonymer Client kann dadurch sämtliche Flag-Metadaten (`key`, `enabled`, `description`, `rollout_percent`) auslesen. Das ermöglicht Reconnaissance und legt die interne Feature-Konfiguration offen.
 
-**Beschreibung:**  
-Der Service bindet in `main.go` an `:8080` und damit an alle Netzwerkschnittstellen. Kein einziger Endpunkt verlangt eine Authentifizierung oder prüft Berechtigungen. Insbesondere die mutierenden Endpunkte:
+**Fix:**
+- Management-Endpunkte konsistent mit `api.RequireAuth` absichern, z. B.:
+  ```go
+  mux.Handle("GET /flags", api.RequireAuth(api.ListFlags(s)))
+  mux.Handle("GET /flags/{key}", api.RequireAuth(api.GetFlag(s)))
+  ```
+- Öffentlich bleibt bewusst nur `GET /flags/{key}/evaluate` (und optional `GET /healthz`).
+- Tests in `flags_list_test.go`, `flags_get_test.go` und `routing_test.go` entsprechend um Autorisierungsheader bzw. 401-Tests ergänzen.
 
-- `POST /flags`
-- `PUT /flags/{key}`
-- `DELETE /flags/{key}`
+### 2. Niedrig — API-Token-Vergleich nicht zeitkonstant
+**Betroffene Stelle:** `internal/api/middleware.go`, Funktion `RequireAuth`.
 
-sind für jeden erreichbar, der Netzwerkzugriff auf den Dienst hat. Ein Angreifer kann Feature Flags anlegen, verändern oder löschen und dadurch unmittelbar Geschäftslogik bzw. Anwendungskonfiguration manipulieren. Dies entspricht einem Auth-Bypass im Sinne von „kein Zugriffsschutz vorhanden“.
+Der Token wird mit einem normalen Stringvergleich (`auth != "Bearer "+token`) geprüft. Das erlaubt theoretisch einen Timing-Angriff auf den Bearer-Token. Praktisch ist das Ausbeuten über ein Netzwerk bei einem hoch-entropen Token erschwert, dennoch sollte eine zeitkonstante Prüfung verwendet werden.
 
-**Konkrete Lösung:**  
-- Standardmäßig nur an `127.0.0.1` binden, nicht an `:8080` (alle Interfaces). Die Bind-Adresse über eine Umgebungsvariable wie `HOST` und `PORT` konfigurierbar machen, mit sicherem Default `127.0.0.1:[PORT]`.
-- Zusätzlich eine Authentifizierungs-Middleware vor die administrativen Routen schalten, z. B. konfigurierbares Bearer-Token oder mTLS. Beispiel:
+**Fix:**
+- `crypto/subtle.ConstantTimeCompare` einsetzen, z. B.:
+  ```go
+  import "crypto/subtle"
 
-```go
-func authMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        token := os.Getenv("FEATUREFLAGS_API_TOKEN")
-        if token != "" {
-            auth := r.Header.Get("Authorization")
-            if auth != "Bearer "+token {
-                api.WriteError(w, http.StatusUnauthorized, "unauthorized")
-                return
-            }
-        }
-        next.ServeHTTP(w, r)
-    })
-}
-```
+  // ...
+  if token == "" || subtle.ConstantTimeCompare([]byte(auth), []byte("Bearer "+token)) != 1 {
+      writeError(w, http.StatusUnauthorized, "unauthorized")
+      return
+  }
+  ```
 
-- Entsprechende Tests für `401` bei fehlendem/ungültigem Token ergänzen.
+### 3. Niedrig — Flag-Key-Format nicht validiert
+**Betroffene Stelle:** `internal/api/flags_create.go`, Validierungsblock.
 
-### 2. Mittel: HTTP-Server ohne Timeouts – Slowloris/Resource-DoS
+Der Key wird nur auf leer und auf maximal 128 Runes geprüft. Zeichen wie `/`, `?`, `#`, Leerzeichen oder Steuerzeichen sind erlaubt. Ein Key mit `/` kann anschließend über die Pfad-Routen (`GET /flags/{key}`, `PUT`, `DELETE`, `Evaluate`) nicht adressiert werden, was zu inkonsistentem Verhalten führen kann. Sonderzeichen können zudem in URLs, Logs oder bei der Integration mit anderen Systemen Probleme verursachen.
 
-**Betroffene Stelle:** `main.go`, `http.ListenAndServe(addr, handler)`
+**Fix:**
+- Erlaubten Zeichensatz definieren und validieren, z. B.:
+  ```go
+  import "regexp"
 
-**Beschreibung:**  
-`http.ListenAndServe` verwendet intern einen `http.Server` ohne `ReadTimeout`, `ReadHeaderTimeout`, `WriteTimeout` oder `IdleTimeout`. Dadurch kann ein Angreifer Verbindungen langsam offen halten oder Anfragen nur sehr langsam senden und so Ressourcen aufbrauchen.
+  var keyPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-**Konkrete Lösung:**  
-Den `http.Server` explizit mit Timeouts konfigurieren:
+  // nach der Längenprüfung:
+  if !keyPattern.MatchString(req.Key) {
+      writeError(w, http.StatusBadRequest, "key contains invalid characters")
+      return
+  }
+  ```
+- Test für ungültige Zeichen ergänzen.
 
-```go
-srv := &http.Server{
-    Addr:              addr,
-    Handler:           handler,
-    ReadHeaderTimeout: 5 * time.Second,
-    ReadTimeout:       10 * time.Second,
-    WriteTimeout:      10 * time.Second,
-    IdleTimeout:       120 * time.Second,
-}
-if err := srv.ListenAndServe(); err != nil { ... }
-```
+### 4. Niedrig — Transportverschlüsselung nicht erzwungen
+**Betroffene Stelle:** `main.go`, `server.ListenAndServe()`.
 
-### 3. Niedrig: Transport unverschlüsselt
+Der Server lauscht ohne TLS. Standardmäßig ist der Host zwar auf `127.0.0.1` gesetzt, aber per `HOST=0.0.0.0` kann der Dienst im Netzwerk exponiert werden. In diesem Fall würden der Bearer-Token und die Flag-Daten im Klartext übertragen.
 
-**Betroffene Stelle:** `main.go`
+**Fix:**
+- Standard-Loopback beibehalten und dokumentieren.
+- Für Exposition im Netzwerk TLS aktivieren, z. B. `ListenAndServeTLS` mit Zertifikat/Key, oder einen TLS-terminierenden Reverse Proxy verbindlich vorschreiben.
+- Optional: beim Start eine Warnung ausgeben, wenn `HOST != 127.0.0.1` und keine TLS-Konfiguration erkannt wird.
 
-**Beschreibung:**  
-Der Service verwendet ausschließlich `http` ohne TLS. Flag-Konfigurationen und ggf. später hinzugefügte API-Tokens wären im Klartext transportiert. Aktuell werden keine hochsensitiven persönlichen Daten übertragen, daher niedrig eingestuft.
+### 5. Niedrig — Caching-Header für Flag-Antworten nicht gesetzt
+**Betroffene Stellen:** `internal/api/respond.go` (`writeJSON`), `internal/api/flags_list.go`, `internal/api/flags_get.go`, `internal/api/flags_update.go`, `internal/api/flags_create.go`.
 
-**Konkrete Lösung:**  
-- TLS-Terminierung über einen vorgeschalteten Reverse Proxy (empfohlen) **oder**
-- direkte Verwendung von `srv.ListenAndServeTLS` mit konfigurierbaren Zertifikatspfaden.
+Nur `EvaluateFlag` setzt `Cache-Control: no-store`. Andere JSON-Antworten mit Flag-Metadaten (Liste, Einzelabruf, nach Änderung) können von zwischengeschalteten Caches gespeichert werden. Feature-Flag-Konfiguration kann vertraulich sein.
 
-### 4. Niedrig: Unzureichende Eingabelängen-Validierung für `key` und `description`
+**Fix:**
+- In `writeJSON` generell `Cache-Control: no-store` setzen:
+  ```go
+  func writeJSON(w http.ResponseWriter, status int, v any) {
+      w.Header().Set("Content-Type", "application/json")
+      w.Header().Set("Cache-Control", "no-store")
+      w.WriteHeader(status)
+      _ = json.NewEncoder(w).Encode(v)
+  }
+  ```
+- Die bereits vorhandene explizite `no-store`-Setzung in `flags_evaluate.go` kann bleiben oder entfernt werden, da sie dann redundant ist.
 
-**Betroffene Stellen:** `internal/api/flags_create.go`, `internal/api/flags_update.go`, `internal/store/store.go`
+## Positive Beobachtungen
 
-**Beschreibung:**  
-Bei `CreateFlag` wird lediglich `key == ""` geprüft. Es gibt keine Begrenzung für die Länge von `key` oder `description`. Das 1-MiB-Body-Limit begrenzt zwar einen einzelnen Request, aber wiederholte Anfragen können den In-Memory-Store mit unnötig großen Objekten füllen und so zu Speicherdruck führen.
+- **Keine hartkodierten Secrets:** `FEATUREFLAGS_API_TOKEN` wird aus der Umgebung gelesen; keine Passwörter, Token oder Schlüssel im Repository.
+- **Body-Limit:** `maxBodyBytes` (1 MiB) wird über einen `io.LimitedReader` durchgesetzt; übermäßig große Bodies führen zu 400, ohne dass der gesamte Body gepuffert wird.
+- **Fehlerantworten:** JSON-Fehlerantworten enthalten generische Texte ohne interne Fehlermeldungen oder Stacktraces.
+- **Datenschutz im Logging:** Die Logging-Middleware protokolliert ausschließlich Methode, Pfad und Statuscode; Query-Parameter (insbesondere `user`) und Request-Bodies werden nicht geloggt.
+- **Thread-Sicherheit:** Der In-Memory-Store verwendet `sync.RWMutex`; Evaluierungen verändern den Store nicht.
+- **Keine externen Abhängigkeiten:** Der sichtbare Code nutzt ausschließlich die Go-Standardbibliothek.
+- **Server-Härtung:** `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout` und `MaxHeaderBytes` sind gesetzt.
 
-**Konkrete Lösung:**  
-Sinnvolle Längenlimits validieren und bei Überschreitung mit `400` ablehnen, z. B.:
+## Gesamtbewertung
 
-```go
-if utf8.RuneCountInString(req.Key) > 128 {
-    writeError(w, http.StatusBadRequest, "key is too long")
-    return
-}
-if len(req.Description) > 4096 {
-    writeError(w, http.StatusBadRequest, "description is too long")
-    return
-}
-```
-
-Analog auch in `UpdateFlag` für `Description` und ggf. `Key`.
-
-### 5. Niedrig: Mögliche Log-Injection über URL-Pfad
-
-**Betroffene Stelle:** `internal/api/middleware.go`
-
-**Beschreibung:**  
-`accessLog.Printf("%s %s %d", r.Method, r.URL.Path, rec.status)` verwendet `r.URL.Path` als unformatierten `%s`-String. `r.URL.Path` ist URL-dekodiert und kann potenziell Steuerzeichen wie `\n` enthalten (`%0A` im Request-Pfad). Ein Angreifer könnte damit Log-Einträge verfälschen oder eigene Zeilen einschleusen. Die Kernanforderung „nur Methode, Pfad und Status loggen“ bleibt dabei formal erfüllt, aber die Ausgabe kann manipuliert werden.
-
-**Konkrete Lösung:**  
-Path mit `%q` maskieren oder Steuerzeichen vor der Ausgabe entfernen:
-
-```go
-accessLog.Printf("%s %q %d", r.Method, r.URL.Path, rec.status)
-```
-
-oder explizit `strings.Map(...)` zum Entfernen von Steuerzeichen verwenden.
-
-### 6. Niedrig: `decodeJSON` erzwingt weder Content-Type noch vollständigen Body-Konsum
-
-**Betroffene Stelle:** `internal/api/respond.go`
-
-**Beschreibung:**  
-`decodeJSON` akzeptiert JSON unabhängig vom `Content-Type` und prüft nicht, ob nach dem ersten JSON-Objekt noch weitere nicht-Whitespace-Daten folgen. `json.Decoder.Decode` liest nur das erste Objekt; ein Body wie `{"key":"x"}{"enabled":true}` würde für den ersten Wert akzeptiert. Das ist derzeit nicht unmittelbar ausnutzbar, kann aber zu Content-Confusion und unerwartetem Verhalten führen.
-
-**Konkrete Lösung:**  
-- `Content-Type: application/json` prüfen und bei Abweichung `415`/`400` zurückgeben.
-- Nach der ersten Decode sicherstellen, dass kein weiterer nicht-Whitespace-Token folgt, z. B.:
-
-```go
-if dec.More() {
-    return errors.New("unexpected trailing data")
-}
-```
-
-oder einen zweiten `Decode`-Versuch auf `io.EOF` prüfen.
-
-### Abschließende Hinweise
-- Keine harten Secret-/Token-Funde, keine SQL/Command-Injection, keine unsichere Deserialisierung, kein SSRF und keine XSS-Lücke, da JSON-Ausgaben durch `encoding/json` korrekt escaped werden.
-- Die In-Memory-Synchronisierung über `sync.RWMutex` ist korrekt; Evaluierungsanfragen verändern den Store nicht und speichern keine Nutzer-IDs.
-- Die oben als „Hoch“ eingestufte fehlende Authentifizierung/Autorisierung begründet den `BLOCKED`-Status und muss vor einem produktiven Betrieb behoben werden.
+Es wurden keine kritischen oder hohen Sicherheitslücken wie hartkodierte Secrets, Injection/RCE, Auth-Bypass oder ausnutzbare Dependency-Schwachstellen festgestellt. Die vorhandenen Befunde sind überwiegend Härtungsmaßnahmen und Zugriffskontrollverbesserungen. Daher: `CHANGES_REQUESTED`.
