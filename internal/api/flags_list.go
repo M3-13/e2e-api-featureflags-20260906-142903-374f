@@ -8,6 +8,6 @@ import (
 
 func ListFlags(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeError(w, http.StatusNotImplemented, "not implemented")
+		writeJSON(w, http.StatusOK, s.List())
 	}
 }
