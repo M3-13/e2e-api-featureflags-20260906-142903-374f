@@ -100,6 +100,18 @@ func TestUpdateFlagRolloutPercentOutOfRange(t *testing.T) {
 	}
 }
 
+func TestUpdateFlagDescriptionTooLong(t *testing.T) {
+	s := store.NewStore()
+	if err := s.Create(store.Flag{Key: "flag1", Enabled: false}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rec := updateReq(t, s, "flag1", `{"enabled":true,"description":"`+strings.Repeat("a", 2001)+`"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("description with 2001 chars want 400, got %d", rec.Code)
+	}
+}
+
 func TestUpdateFlagUnknownKey(t *testing.T) {
 	s := store.NewStore()
 

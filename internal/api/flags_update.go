@@ -33,6 +33,11 @@ func UpdateFlag(s *store.Store) http.HandlerFunc {
 			return
 		}
 
+		if req.Description != nil && len(*req.Description) > 2000 {
+			writeError(w, http.StatusBadRequest, "description too long")
+			return
+		}
+
 		existing, err := s.Get(key)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
