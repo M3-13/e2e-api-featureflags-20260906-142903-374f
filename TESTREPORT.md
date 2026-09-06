@@ -1,10 +1,13 @@
 VERDICT: BUGS_FOUND
 
-**Bug 1: Routing-Test `TestRoutesAreWired` verwechselt 404 für unbekannte Flag-Keys mit fehlender Route**
-- **Titel**: Routing-Test verwechselt 404 für unbekannte Flag-Keys mit fehlender Route
-- **Symptom**: `go test ./...` endet mit Exit 1. Der Test `TestRoutesAreWired` meldet, `GET /flags/myfeature` und `DELETE /flags/myfeature` seien „not wired“ (nicht verdrahtet), obwohl beide Endpunkte laut AC-03 für einen unbekannten Key korrekt 404 liefern. Dadurch wird AC-09 („go test grün“) verletzt und die CI blockiert.
-- **Repro**: Im Projekt-Root `go test ./...` ausführen.
-- **Evidence**:
+Der Build (`go build ./...`) ist sauber, und die Paket-Tests für `internal/api`, `internal/evaluate` sowie `internal/store` sind grün. Der Gesamtlauf `go test ./...` schlägt jedoch mit Exit 1 fehl. Ursache ist ein falscher Routing-Test: Er wertet die spezifikationskonformen 404-Antworten für unbekannte Flag-`key`s fälschlich als „Route nicht verdrahtet“. `GET /flags/{key}` und `DELETE /flags/{key}` müssen laut AC-03 für einen unbekannten `key` mit 404 und JSON-Fehlerobjekt antworten. `TestRoutesAreWired` fragt genau den unbekannten `myfeature` ab, ohne vorher ein Flag anzulegen, und erwartet deshalb zu Unrecht keinen 404.
+
+**Bugliste**
+
+- **Titel**: `TestRoutesAreWired` wertet legitime 404-Antworten für unbekannte Keys als Routingfehler
+- **Symptom**: `go test ./...` endet mit Exit 1; die Untertests `get_flag` und `delete_flag` schlagen fehl, obwohl die Handler korrekt registriert sind und das von der Spezifikation verlangte 404 liefern. Damit ist AC-09 („laufen mit go test grün durch“) verletzt und das CI-Gate bricht.
+- **Repro**: Im Projektstamm `go test ./...` ausführen.
+- **Beleg**:
   ```
   --- FAIL: TestRoutesAreWired (0.00s)
       --- FAIL: TestRoutesAreWired/get_flag (0.00s)
@@ -12,9 +15,7 @@ VERDICT: BUGS_FOUND
       --- FAIL: TestRoutesAreWired/delete_flag (0.00s)
           routing_test.go:33: DELETE /flags/myfeature should be wired, got 404
   FAIL
-  FAIL	featureflags	0.638s
+  FAIL	featureflags	0.621s
   ```
-  Zugehöriges Log des fehlgeschlagenen Tests:
-  `POST /flags 400`, `GET /flags/myfeature 404`, `DELETE /flags/myfeature 404`
-- **Suspected file(s)**: `routing_test.go` — der Test legt das Flag vermutlich mit ungültigem Request-Body an (`POST /flags` liefert 400), sodass `myfeature` nie existiert; die folgenden GET/DELETE liefern daher korrekt 404, aber der Test interpretiert das als „Route nicht verdrahtet“. Alternativ müssen die Test-Assertions an die 404-Semantik aus AC-03 angepasst werden.
-- **Severity**: high
+- **Verdächtige Datei(en)**: `routing_test.go` (Logik in `TestRoutesAreWired`)
+- **Schweregrad**: high
