@@ -34,6 +34,7 @@ func EvaluateFlag(s *store.Store) http.HandlerFunc {
 		}
 
 		enabled := evaluate.Decide(key, user, f.RolloutPercent, f.Enabled)
+		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, http.StatusOK, evaluateResponse{
 			Enabled: enabled,
 			Key:     key,
